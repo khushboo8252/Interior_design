@@ -5,7 +5,7 @@ function Home() {
   const navigate = useNavigate(); // Initialize navigate
 
   const handleGetStarted = () => {
-    navigate("/client/onboarding/requirements"); // Navigate to /freelancer/onboarding route
+    navigate("/freelancer/onboarding"); // Navigate to /freelancer/onboarding route
   };
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100">
