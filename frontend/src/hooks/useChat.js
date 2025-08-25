@@ -9,9 +9,13 @@ export const useChat = (userId) => {
   const [error, setError] = useState(null);
   const [typingUsers, setTypingUsers] = useState({});
   const [onlineUsers, setOnlineUsers] = useState(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
   
   const socketRef = useRef(null);
   const typingTimeoutRef = useRef({});
+  const draftTimeoutRef = useRef(null);
 
   // Initialize chat service
   useEffect(() => {
@@ -21,6 +25,9 @@ export const useChat = (userId) => {
     
     return () => {
       chatService.disconnect();
+      // Clear all timeouts
+      Object.values(typingTimeoutRef.current).forEach(clearTimeout);
+      if (draftTimeoutRef.current) clearTimeout(draftTimeoutRef.current);
     };
   }, [userId]);
 
@@ -28,8 +35,11 @@ export const useChat = (userId) => {
     try {
       setLoading(true);
       
+      // Get auth token
+      const token = localStorage.getItem('token') || 'mock-token';
+      
       // Initialize WebSocket
-      socketRef.current = chatService.initializeSocket(userId);
+      socketRef.current = chatService.initializeSocket(userId, token);
       
       // Setup WebSocket event listeners
       setupSocketListeners();
@@ -47,27 +57,28 @@ export const useChat = (userId) => {
 
   const setupSocketListeners = () => {
     // Listen for new messages
-    chatService.onMessage((data) => {
-      switch (data.type) {
-        case 'message':
-          handleNewMessage(data);
-          break;
-        case 'typing':
-          handleTypingIndicator(data);
-          break;
-        case 'user_online':
-          setOnlineUsers(prev => new Set([...prev, data.userId]));
-          break;
-        case 'user_offline':
-          setOnlineUsers(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(data.userId);
-            return newSet;
-          });
-          break;
-        default:
-          break;
-      }
+    chatService.on('new_message', (data) => {
+      handleNewMessage(data);
+    });
+
+    // Listen for typing indicators
+    chatService.on('user_typing', (data) => {
+      handleTypingIndicator(data);
+    });
+
+    // Listen for read receipts
+    chatService.on('message_read', (data) => {
+      handleReadReceipt(data);
+    });
+
+    // Listen for user online/offline status
+    chatService.on('user_status', (data) => {
+      handleUserStatusChange(data);
+    });
+
+    // Listen for conversation updates
+    chatService.on('conversation_updated', (data) => {
+      handleConversationUpdate(data);
     });
   };
 
@@ -79,36 +90,27 @@ export const useChat = (userId) => {
       avatar: data.avatar,
       text: data.text,
       timestamp: data.timestamp,
-      isRead: false
+      isRead: data.senderId === parseInt(userId),
+      readBy: data.readBy || [],
+      attachments: data.attachments || []
     };
 
     // Add to messages if it's for the current conversation
     if (selectedConversation && data.conversationId === selectedConversation.id) {
       setMessages(prev => [...prev, newMessage]);
       
-      // Mark as read if conversation is active
-      chatService.markAsRead(data.conversationId, data.id);
+      // Mark as read if conversation is active and message is not from current user
+      if (data.senderId !== parseInt(userId)) {
+        chatService.markAsRead(data.conversationId, [data.id]);
+      }
     }
 
     // Update conversation list
-    setConversations(prev => prev.map(conv => {
-      if (conv.id === data.conversationId) {
-        return {
-          ...conv,
-          lastMessage: {
-            text: data.text,
-            timestamp: data.timestamp,
-            sender: data.senderId === userId ? 'me' : 'other'
-          },
-          unreadCount: selectedConversation?.id === conv.id ? 0 : (conv.unreadCount || 0) + 1
-        };
-      }
-      return conv;
-    }));
+    updateConversationLastMessage(data.conversationId, newMessage);
   };
 
   const handleTypingIndicator = (data) => {
-    if (data.conversationId === selectedConversation?.id) {
+    if (data.conversationId === selectedConversation?.id && data.userId !== userId.toString()) {
       setTypingUsers(prev => ({
         ...prev,
         [data.userId]: data.isTyping
@@ -130,44 +132,127 @@ export const useChat = (userId) => {
     }
   };
 
+  const handleReadReceipt = (data) => {
+    if (selectedConversation && data.conversationId === selectedConversation.id) {
+      setMessages(prev => prev.map(msg => {
+        if (data.messageIds.includes(msg.id)) {
+          return {
+            ...msg,
+            isRead: true,
+            readBy: [...new Set([...msg.readBy, data.userId])]
+          };
+        }
+        return msg;
+      }));
+    }
+  };
+
+  const handleUserStatusChange = (data) => {
+    setOnlineUsers(prev => {
+      const newSet = new Set(prev);
+      if (data.isOnline) {
+        newSet.add(data.userId);
+      } else {
+        newSet.delete(data.userId);
+      }
+      return newSet;
+    });
+
+    // Update conversation list with user status
+    setConversations(prev => prev.map(conv => ({
+      ...conv,
+      designer: conv.designer.id === data.userId 
+        ? { ...conv.designer, isOnline: data.isOnline, lastSeen: data.lastSeen }
+        : conv.designer,
+      client: conv.client.id === data.userId 
+        ? { ...conv.client, isOnline: data.isOnline, lastSeen: data.lastSeen }
+        : conv.client
+    })));
+  };
+
+  const handleConversationUpdate = (data) => {
+    setConversations(prev => prev.map(conv => 
+      conv.id === data.conversationId 
+        ? { ...conv, ...data.updates }
+        : conv
+    ));
+  };
+
+  const updateConversationLastMessage = (conversationId, message) => {
+    setConversations(prev => prev.map(conv => {
+      if (conv.id === conversationId) {
+        const isCurrentConversation = selectedConversation?.id === conv.id;
+        const isFromCurrentUser = message.senderId === parseInt(userId);
+        
+        return {
+          ...conv,
+          lastMessage: {
+            id: message.id,
+            text: message.text,
+            timestamp: message.timestamp,
+            senderId: message.senderId,
+            isRead: message.isRead
+          },
+          unreadCount: isCurrentConversation || isFromCurrentUser 
+            ? 0 
+            : (conv.unreadCount || 0) + 1,
+          updatedAt: message.timestamp
+        };
+      }
+      return conv;
+    }));
+  };
+
   const selectConversation = async (conversation) => {
     try {
       setSelectedConversation(conversation);
+      setMessages([]); // Clear previous messages
       
       // Load messages for this conversation
-      const messagesData = await chatService.getMessages(conversation.id);
-      setMessages(messagesData.length > 0 ? messagesData : conversation.messages || []);
+      const { messages: messagesData } = await chatService.getMessages(conversation.id);
+      setMessages(messagesData);
       
       // Load draft if exists
       const draft = await chatService.getDraft(conversation.id);
-      if (draft) {
-        // You can use this draft to populate the input field
-        return draft;
-      }
       
       // Mark conversation as read
+      const unreadMessages = messagesData
+        .filter(msg => !msg.isRead && msg.senderId !== parseInt(userId))
+        .map(msg => msg.id);
+      
+      if (unreadMessages.length > 0) {
+        await chatService.markAsRead(conversation.id, unreadMessages);
+      }
+      
+      // Update conversation unread count
       setConversations(prev => prev.map(conv => 
         conv.id === conversation.id 
           ? { ...conv, unreadCount: 0 }
           : conv
       ));
       
+      return draft;
+      
     } catch (err) {
       setError(err.message);
     }
   };
 
-  const sendMessage = async (text, attachments = []) => {
+  const sendMessage = async (text, attachments = [], replyTo = null) => {
     if (!selectedConversation || !text.trim()) return;
 
+    const tempId = `temp_${Date.now()}`;
     const tempMessage = {
-      id: Date.now(), // Temporary ID
-      senderId: userId,
+      id: tempId,
+      senderId: parseInt(userId),
       senderName: "You",
-      avatar: "", // Add user avatar
+      avatar: "", // Add user avatar from context
       text: text.trim(),
       timestamp: new Date().toISOString(),
-      isRead: false,
+      isRead: true,
+      readBy: [parseInt(userId)],
+      attachments,
+      replyTo,
       status: 'sending'
     };
 
@@ -178,15 +263,19 @@ export const useChat = (userId) => {
       // Send via API
       const sentMessage = await chatService.sendMessage(selectedConversation.id, {
         text: text.trim(),
-        attachments
+        attachments,
+        replyTo
       });
 
       // Update message with server response
       setMessages(prev => prev.map(msg => 
-        msg.id === tempMessage.id 
+        msg.id === tempId 
           ? { ...sentMessage, status: 'sent' }
           : msg
       ));
+
+      // Update conversation last message
+      updateConversationLastMessage(selectedConversation.id, sentMessage);
 
       // Clear any saved draft
       await chatService.saveDraft(selectedConversation.id, '');
@@ -194,7 +283,7 @@ export const useChat = (userId) => {
     } catch (err) {
       // Mark message as failed
       setMessages(prev => prev.map(msg => 
-        msg.id === tempMessage.id 
+        msg.id === tempId 
           ? { ...msg, status: 'failed' }
           : msg
       ));
@@ -204,18 +293,56 @@ export const useChat = (userId) => {
 
   const sendTypingIndicator = useCallback((isTyping) => {
     if (selectedConversation) {
-      chatService.sendTyping(selectedConversation.id, isTyping);
+      chatService.sendTypingIndicator(selectedConversation.id, isTyping);
     }
   }, [selectedConversation]);
 
-  const saveDraft = useCallback(async (content) => {
+  const saveDraft = useCallback((content) => {
     if (selectedConversation) {
-      await chatService.saveDraft(selectedConversation.id, content);
+      // Debounce draft saving
+      if (draftTimeoutRef.current) {
+        clearTimeout(draftTimeoutRef.current);
+      }
+      
+      draftTimeoutRef.current = setTimeout(async () => {
+        await chatService.saveDraft(selectedConversation.id, content);
+      }, 1000);
     }
   }, [selectedConversation]);
+
+  const uploadFile = async (file) => {
+    if (!selectedConversation) return null;
+    
+    try {
+      const uploadResult = await chatService.uploadFile(file, selectedConversation.id);
+      return uploadResult;
+    } catch (err) {
+      setError('Failed to upload file');
+      throw err;
+    }
+  };
+
+  const searchMessages = async (query) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const { results } = await chatService.searchMessages(query, selectedConversation?.id);
+      setSearchResults(results);
+    } catch (err) {
+      setError('Search failed');
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   const getTypingIndicator = () => {
-    const typingUserIds = Object.keys(typingUsers).filter(id => typingUsers[id] && id !== userId.toString());
+    const typingUserIds = Object.keys(typingUsers).filter(id => 
+      typingUsers[id] && id !== userId.toString()
+    );
     
     if (typingUserIds.length === 0) return null;
     
@@ -229,18 +356,65 @@ export const useChat = (userId) => {
     return 'Multiple people are typing...';
   };
 
+  const retryFailedMessage = async (messageId) => {
+    const failedMessage = messages.find(msg => msg.id === messageId && msg.status === 'failed');
+    if (!failedMessage) return;
+
+    // Update status to sending
+    setMessages(prev => prev.map(msg => 
+      msg.id === messageId 
+        ? { ...msg, status: 'sending' }
+        : msg
+    ));
+
+    try {
+      const sentMessage = await chatService.sendMessage(selectedConversation.id, {
+        text: failedMessage.text,
+        attachments: failedMessage.attachments || [],
+        replyTo: failedMessage.replyTo
+      });
+
+      // Replace failed message with sent message
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId 
+          ? { ...sentMessage, status: 'sent' }
+          : msg
+      ));
+
+    } catch (err) {
+      // Mark as failed again
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, status: 'failed' }
+          : msg
+      ));
+      setError('Failed to resend message');
+    }
+  };
+
   return {
+    // State
     conversations,
     selectedConversation,
     messages,
     loading,
     error,
     onlineUsers,
+    typingUsers,
+    searchQuery,
+    searchResults,
+    isSearching,
+    
+    // Actions
     selectConversation,
     sendMessage,
     sendTypingIndicator,
     saveDraft,
+    uploadFile,
+    searchMessages,
+    retryFailedMessage,
     getTypingIndicator,
-    setError
+    setError,
+    setSearchQuery
   };
 };
