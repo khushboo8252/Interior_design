@@ -1,13 +1,12 @@
 import React from "react";
 import { useNavigate } from "react-router-dom"; // Import useNavigate
 
-const WelcomeScreen = () => {
+function Home() {
   const navigate = useNavigate(); // Initialize navigate
 
   const handleGetStarted = () => {
-    navigate("/rooms"); // Navigate to /rooms route
+    navigate("/freelancer/onboarding"); // Navigate to /freelancer/onboarding route
   };
-
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100">
       {/* Card container */}
@@ -37,6 +36,6 @@ const WelcomeScreen = () => {
       </div>
     </div>
   );
-};
+}
 
-export default WelcomeScreen;
+export default Home;
