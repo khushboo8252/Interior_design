@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Upload, Plus, Minus, Clock, RefreshCcw } from 'lucide-react';
 
 const Requirements = () => {
-  const [currentStep, setCurrentStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(2); // Start on budget step for testing
   const [selectedRooms, setSelectedRooms] = useState({});
-  const [budget, setBudget] = useState(50);
+  const [budgetRange, setBudgetRange] = useState({ min: 20, max: 80 });
   const [selectedStyles, setSelectedStyles] = useState([]);
   const [activeStyleTab, setActiveStyleTab] = useState('modern');
   const [projectBrief, setProjectBrief] = useState('');
@@ -21,13 +21,13 @@ const Requirements = () => {
   ];
 
   const styleOptions = [
-  { id: 'modern', name: 'Modern', image: 'https://images.unsplash.com/photo-1616486029423-aaa4789e8c9a?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8YmVkcm9vbSUyMGludGVyaW9yfGVufDB8fDB8fHww' },
-  { id: 'luxury', name: 'Luxury', image: 'https://media.designcafe.com/wp-content/uploads/2019/12/17054511/small-bedroom-design-ideas.jpg' },
-  { id: 'minimal', name: 'Minimal', image: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQGmkx2Umg4LvSkn2y12K_ClQgk6W_F02SzhA&s' },
-  { id: 'classic', name: 'Classic', image: 'https://www.decorilla.com/online-decorating/wp-content/uploads/2024/07/Expert-decorating-for-a-small-living-room-by-Decorilla-scaled.jpg' },
-  { id: 'industrial', name: 'Industrial', image: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRi99CET2SA2Q6sLsTEs2VnGqZflaIhtcujAA&s' },
-  { id: 'traditional', name: 'Traditional', image: 'https://eastwood.nyc3.cdn.digitaloceanspaces.com/blogs/EWH%20-%20Outdoor%20Living%20Space%20Image%201.jpeg' },
-];
+    { id: 'modern', name: 'Modern', image: 'https://images.unsplash.com/photo-1616486029423-aaa4789e8c9a?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8YmVkcm9vbSUyMGludGVyaW9yfGVufDB8fDB8fHww' },
+    { id: 'luxury', name: 'Luxury', image: 'https://media.designcafe.com/wp-content/uploads/2019/12/17054511/small-bedroom-design-ideas.jpg' },
+    { id: 'minimal', name: 'Minimal', image: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQGmkx2Umg4LvSkn2y12K_ClQgk6W_F02SzhA&s' },
+    { id: 'classic', name: 'Classic', image: 'https://www.decorilla.com/online-decorating/wp-content/uploads/2024/07/Expert-decorating-for-a-small-living-room-by-Decorilla-scaled.jpg' },
+    { id: 'industrial', name: 'Industrial', image: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRi99CET2SA2Q6sLsTEs2VnGqZflaIhtcujAA&s' },
+    { id: 'traditional', name: 'Traditional', image: 'https://eastwood.nyc3.cdn.digitaloceanspaces.com/blogs/EWH%20-%20Outdoor%20Living%20Space%20Image%201.jpeg' },
+  ];
 
   const styles = [
     { 
@@ -138,7 +138,6 @@ const Requirements = () => {
                 src={room.image} 
                 alt={room.name} 
                 className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                
               />
             </div>
             <div className="p-4">
@@ -165,85 +164,283 @@ const Requirements = () => {
     </div>
   );
 
-  const renderBudgetSelection = () => (
-    <div className="text-center max-w-2xl mx-auto">
-      <h2 className="text-3xl font-bold text-gray-900 mb-4">What's your budget?</h2>
-      <p className="text-gray-600 mb-8">This helps us match you with the right designers.</p>
+  // Improved Two-Pointer Range Slider Component
+  const SmoothRangeSlider = ({ min, max, values, onChange, step = 1, formatValue = (v) => v }) => {
+    const [isDragging, setIsDragging] = useState({ min: false, max: false });
+    const sliderRef = useRef(null);
+
+    const getPercentage = (value) => ((value - min) / (max - min)) * 100;
+
+    const handleMouseDown = (type) => (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(prev => ({ ...prev, [type]: true }));
+    };
+
+    const handleTouchStart = (type) => (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(prev => ({ ...prev, [type]: true }));
+    };
+
+    const getValueFromPosition = useCallback((clientX) => {
+      if (!sliderRef.current) return values[0];
       
-      <div className="mb-8">
-        <label className="block text-left text-gray-700 font-medium mb-4">Budget</label>
-        <div className="relative">
-          <input
-            type="range"
-            min="10"
-            max="100"
-            value={budget}
-            onChange={(e) => setBudget(e.target.value)}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+      const rect = sliderRef.current.getBoundingClientRect();
+      const percentage = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+      const rawValue = min + (percentage / 100) * (max - min);
+      return Math.round(rawValue / step) * step;
+    }, [min, max, step, values]);
+
+    const handleMove = useCallback((clientX) => {
+      if (!isDragging.min && !isDragging.max) return;
+      
+      const newValue = getValueFromPosition(clientX);
+
+      if (isDragging.min) {
+        const newMin = Math.max(min, Math.min(newValue, values[1] - step));
+        onChange([newMin, values[1]]);
+      } else if (isDragging.max) {
+        const newMax = Math.min(max, Math.max(newValue, values[0] + step));
+        onChange([values[0], newMax]);
+      }
+    }, [isDragging, getValueFromPosition, min, max, step, values, onChange]);
+
+    const handleMouseMove = useCallback((e) => {
+      handleMove(e.clientX);
+    }, [handleMove]);
+
+    const handleTouchMove = useCallback((e) => {
+      if (e.touches[0]) {
+        handleMove(e.touches[0].clientX);
+      }
+    }, [handleMove]);
+
+    const handleEnd = useCallback(() => {
+      setIsDragging({ min: false, max: false });
+    }, []);
+
+    React.useEffect(() => {
+      if (isDragging.min || isDragging.max) {
+        const handleMouseMoveGlobal = (e) => handleMouseMove(e);
+        const handleTouchMoveGlobal = (e) => handleTouchMove(e);
+        const handleMouseUpGlobal = () => handleEnd();
+        const handleTouchEndGlobal = () => handleEnd();
+
+        document.addEventListener('mousemove', handleMouseMoveGlobal);
+        document.addEventListener('touchmove', handleTouchMoveGlobal, { passive: false });
+        document.addEventListener('mouseup', handleMouseUpGlobal);
+        document.addEventListener('touchend', handleTouchEndGlobal);
+
+        return () => {
+          document.removeEventListener('mousemove', handleMouseMoveGlobal);
+          document.removeEventListener('touchmove', handleTouchMoveGlobal);
+          document.removeEventListener('mouseup', handleMouseUpGlobal);
+          document.removeEventListener('touchend', handleTouchEndGlobal);
+        };
+      }
+    }, [isDragging, handleMouseMove, handleTouchMove, handleEnd]);
+
+    const handleTrackClick = (e) => {
+      if (isDragging.min || isDragging.max) return;
+      
+      const newValue = getValueFromPosition(e.clientX);
+      const midpoint = (values[0] + values[1]) / 2;
+      
+      if (newValue < midpoint) {
+        const newMin = Math.max(min, Math.min(newValue, values[1] - step));
+        onChange([newMin, values[1]]);
+      } else {
+        const newMax = Math.min(max, Math.max(newValue, values[0] + step));
+        onChange([values[0], newMax]);
+      }
+    };
+
+    return (
+      <div className="relative w-full py-4">
+        {/* Track */}
+        <div 
+          ref={sliderRef}
+          className="relative h-2 bg-gray-200 rounded-lg cursor-pointer"
+          onClick={handleTrackClick}
+        >
+          {/* Active range */}
+          <div
+            className="absolute h-2 bg-blue-500 rounded-lg transition-all duration-150 ease-out"
+            style={{
+              left: `${getPercentage(values[0])}%`,
+              width: `${getPercentage(values[1]) - getPercentage(values[0])}%`,
+            }}
           />
-          <div className="flex justify-between text-sm text-gray-500 mt-2">
-            <span>$10k</span>
-            <span>$100k+</span>
+          
+          {/* Min thumb */}
+          <div
+            className={`absolute w-6 h-6 bg-white border-2 border-blue-500 rounded-full shadow-lg cursor-grab active:cursor-grabbing transform -translate-y-2 transition-all duration-150 ease-out hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+              isDragging.min ? 'scale-125 shadow-xl border-blue-600' : ''
+            }`}
+            style={{
+              left: `calc(${getPercentage(values[0])}% - 12px)`,
+              zIndex: isDragging.min ? 10 : 5
+            }}
+            onMouseDown={handleMouseDown('min')}
+            onTouchStart={handleTouchStart('min')}
+            tabIndex={0}
+            role="slider"
+            aria-valuenow={values[0]}
+            aria-valuemin={min}
+            aria-valuemax={max}
+            aria-label="Minimum budget"
+          />
+          
+          {/* Max thumb */}
+          <div
+            className={`absolute w-6 h-6 bg-white border-2 border-blue-500 rounded-full shadow-lg cursor-grab active:cursor-grabbing transform -translate-y-2 transition-all duration-150 ease-out hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+              isDragging.max ? 'scale-125 shadow-xl border-blue-600' : ''
+            }`}
+            style={{
+              left: `calc(${getPercentage(values[1])}% - 12px)`,
+              zIndex: isDragging.max ? 10 : 5
+            }}
+            onMouseDown={handleMouseDown('max')}
+            onTouchStart={handleTouchStart('max')}
+            tabIndex={0}
+            role="slider"
+            aria-valuenow={values[1]}
+            aria-valuemin={min}
+            aria-valuemax={max}
+            aria-label="Maximum budget"
+          />
+        </div>
+
+        {/* Value labels */}
+        <div className="flex justify-between mt-6 text-sm text-gray-500">
+          <span>{formatValue(min)}</span>
+          <span>{formatValue(max)}</span>
+        </div>
+
+        {/* Current values tooltip-style display */}
+        <div className="flex justify-center mt-4 space-x-6">
+          <div className="text-center">
+            <div 
+              className={`inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium transition-all duration-200 ${
+                isDragging.min ? 'bg-blue-200 scale-105' : ''
+              }`}
+            >
+              {formatValue(values[0])}
+            </div>
+          </div>
+          <div className="text-center">
+            <div 
+              className={`inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium transition-all duration-200 ${
+                isDragging.max ? 'bg-blue-200 scale-105' : ''
+              }`}
+            >
+              {formatValue(values[1])}
+            </div>
           </div>
         </div>
-        <div className="mt-4 text-2xl font-bold text-blue-600">
-          ${budget}k{budget >= 100 ? '+' : ''}
+      </div>
+    );
+  };
+
+  const renderBudgetSelection = () => (
+    <div className="text-center max-w-3xl mx-auto">
+      <h2 className="text-3xl font-bold text-gray-900 mb-4">What's your budget range?</h2>
+      <p className="text-gray-600 mb-8">This helps us match you with the right designers within your budget.</p>
+      
+      <div className="mb-8 bg-gray-50 p-8 rounded-2xl">
+        {/* Improved Range Slider */}
+        <div className="mb-8">
+          <SmoothRangeSlider
+            min={10}
+            max={100}
+            values={[budgetRange.min, budgetRange.max]}
+            onChange={([min, max]) => setBudgetRange({ min, max })}
+            step={5}
+            formatValue={(value) => `$${value}k${value >= 100 ? '+' : ''}`}
+          />
+        </div>
+
+        {/* Budget Values Display */}
+        <div className="flex justify-between items-center mb-6">
+          <div className="text-center">
+            <div className="text-sm font-medium text-gray-600 mb-1">Minimum</div>
+            <div className="text-2xl font-bold text-blue-600">
+              ${budgetRange.min}k{budgetRange.min >= 100 ? '+' : ''}
+            </div>
+          </div>
+          <div className="text-gray-400 text-xl">-</div>
+          <div className="text-center">
+            <div className="text-sm font-medium text-gray-600 mb-1">Maximum</div>
+            <div className="text-2xl font-bold text-blue-600">
+              ${budgetRange.max}k{budgetRange.max >= 100 ? '+' : ''}
+            </div>
+          </div>
+        </div>
+
+        {/* Budget Range Summary */}
+        <div className="p-6 bg-white rounded-xl border border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Your Budget Range</h3>
+          <div className="text-2xl font-bold text-blue-600">
+            ${budgetRange.min}k - ${budgetRange.max}k{budgetRange.max >= 100 ? '+' : ''}
+          </div>
+          <p className="text-gray-600 mt-2">
+            We'll match you with designers who can work within this range.
+          </p>
         </div>
       </div>
     </div>
   );
 
- const renderStyleSelection = () => (
-  <div className="text-center">
-    <h2 className="text-3xl font-bold text-gray-900 mb-4">What's your style?</h2>
-    <p className="text-gray-600 mb-8">
-      Select the style that best represents your vision for the space. 
-      You can choose multiple styles if you're drawn to more than one.
-    </p>
+  const renderStyleSelection = () => (
+    <div className="text-center">
+      <h2 className="text-3xl font-bold text-gray-900 mb-4">What's your style?</h2>
+      <p className="text-gray-600 mb-8">
+        Select the style that best represents your vision for the space. 
+        You can choose multiple styles if you're drawn to more than one.
+      </p>
 
-    {/* Grid of Style Options */}
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-      {styleOptions.map((style) => (
-        <div
-          key={style.id}
-          className={`relative rounded-xl overflow-hidden shadow-lg cursor-pointer group transition-all ${
-            isStyleSelected(style.id) ? 'ring-4 ring-blue-500' : 'hover:shadow-xl'
-          }`}
-          onClick={() => toggleStyle(style.id)}
-        >
-          {/* Style Image */}
-          <div className="aspect-[4/3] w-full h-full overflow-hidden">
-            <img
-              src={style.image}
-              alt={style.name}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            />
-          </div>
-
-          {/* Overlay when selected */}
-          {isStyleSelected(style.id) && (
-            <div className="absolute inset-0 bg-blue-500 bg-opacity-30 flex items-center justify-center">
-              <div className="bg-blue-600 text-white rounded-full w-10 h-10 flex items-center justify-center text-lg font-bold">
-                ✓
-              </div>
+      {/* Grid of Style Options */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+        {styleOptions.map((style) => (
+          <div
+            key={style.id}
+            className={`relative rounded-xl overflow-hidden shadow-lg cursor-pointer group transition-all ${
+              isStyleSelected(style.id) ? 'ring-4 ring-blue-500' : 'hover:shadow-xl'
+            }`}
+            onClick={() => toggleStyle(style.id)}
+          >
+            {/* Style Image */}
+            <div className="aspect-[4/3] w-full h-full overflow-hidden">
+              <img
+                src={style.image}
+                alt={style.name}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              />
             </div>
-          )}
 
-          {/* Removed style name label */}
-        </div>
-      ))}
-    </div>
-
-    {/* Selected Styles Summary - Simplified */}
-    {selectedStyles.length > 0 && (
-      <div className="mt-8 p-4">
-        <p className="text-gray-600">
-          {selectedStyles.length} style{selectedStyles.length !== 1 ? 's' : ''} selected
-        </p>
+            {/* Overlay when selected */}
+            {isStyleSelected(style.id) && (
+              <div className="absolute inset-0 bg-blue-500 bg-opacity-30 flex items-center justify-center">
+                <div className="bg-blue-600 text-white rounded-full w-10 h-10 flex items-center justify-center text-lg font-bold">
+                  ✓
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
-    )}
-  </div>
-);
+
+      {/* Selected Styles Summary - Simplified */}
+      {selectedStyles.length > 0 && (
+        <div className="mt-8 p-4">
+          <p className="text-gray-600">
+            {selectedStyles.length} style{selectedStyles.length !== 1 ? 's' : ''} selected
+          </p>
+        </div>
+      )}
+    </div>
+  );
 
   const renderProjectBrief = () => (
     <div className="text-center max-w-2xl mx-auto">
