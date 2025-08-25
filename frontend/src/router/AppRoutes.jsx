@@ -11,6 +11,7 @@ const Requirements = lazy(() => import("./pages/Onboarding/Requirements"));
 const Recommendations = lazy(() =>
   import("./pages/Onboarding/Recommendations")
 );
+const Preferences = lazy(() => import("./pages/Onboarding/Preferences"));
 
 const Chat = lazy(() => import("./pages/Chat/Chat"));
 const Conversation = lazy(() => import("./pages/Chat/Conversation"));
@@ -50,6 +51,7 @@ function AppRoutes() {
           <Route path="/client/onboarding" element={<ClientOnboarding />}>
             <Route path="requirements" element={<Requirements />} />
             <Route path="recommendations" element={<Recommendations />} />
+            <Route path="preferences" element={<Preferences />} />
           </Route>
 
           {/* Chat System */}
