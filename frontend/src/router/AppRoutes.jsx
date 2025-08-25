@@ -64,7 +64,6 @@ function AppRoutes() {
           {/* Privacy */}
           <Route path="/privacy" element={<Privacy />} />
 
-          {/* Recommendations */}
           <Route
             path="/recommendations/designer"
             element={<DesignerRecommendations />}
